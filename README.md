@@ -15,5 +15,6 @@ $ cargo test-bpf
 ```
 
 ### Deploy the contract:
-
+```
 $ solana program deploy /Solana/Core/target/deploy/superbonds_finance.so
+```
