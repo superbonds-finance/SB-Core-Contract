@@ -2,9 +2,6 @@
 #![allow(non_snake_case)]
 
 use {
-    crate::{
-        error::SB_Error
-    },
     solana_program::{
         program_error::ProgramError,
     }
@@ -20,7 +17,7 @@ pub enum SuperBondsInstruction {
     */
     initStakingPool{
     },
-    
+
     initPool {
         pool_length: u32,
     },
@@ -45,16 +42,12 @@ pub enum SuperBondsInstruction {
     claimTreasury {
     },
 
-    addLiquidity{
-        liquidity_n_fee_usdt: u64
-    },
-
-    removeLiquidity{
-        lp_token_amount: u64
+    add_remove_liq{
+        action_type: u8,
+        amount: u64,
     },
     /*
         type = 0 --> lp token
-        type = 1 --> sol_sb_lp token
         type = 2 --> superB token
     */
     stake{
@@ -67,38 +60,46 @@ pub enum SuperBondsInstruction {
         amount: u64
     },
 
-    claim{
-    },
+    claimNFT{
 
-    check_reward{
     },
 
     trade{
-        usdt_in: u64
+        usdc_in: u64
     },
 
     redeem{
     },
 
-    add_farming_reward{
-        amount: u64,
-        farm_id: u8
+    request_farming_reward{
     },
 
-    claim_farming_reward{
+    distribute_farming_reward{
         farm_id: u8,
-        reward_data_size: u8
+        amount: u64
+    },
+
+    cleanup_farming_reward_request{
+
     },
 
     set_superbonds{
         status: u8
+    },
+
+    settle_redemption{
+
+    },
+    //Withdraw USDC/SUPERB Treasury and SuperB Fee Pool
+    withdraw_fund{
+        amount: u64
     }
 
 }
 impl SuperBondsInstruction {
 
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
-        let (&tag, rest) = input.split_first().ok_or(SB_Error::InvalidInstruction)?;
+        let (&tag, rest) = input.split_first().ok_or(ProgramError::InvalidInstructionData)?;
         Ok(match tag {
             0 => {
                 let (pool_length, _rest) = Self::unpack_u32(rest)?;
@@ -106,7 +107,6 @@ impl SuperBondsInstruction {
                     pool_length
                 }
             },
-            /*          UPDATE YIELD       */
 
             2 =>{
                 let (isGov, rest) = Self::unpack_u8(rest)?;
@@ -116,6 +116,7 @@ impl SuperBondsInstruction {
                     index
                 }
             },
+
             3 =>{
                 Self::initStakingPool{
                 }
@@ -134,6 +135,7 @@ impl SuperBondsInstruction {
                     value_u64
                 }
             },
+
             9 => {
                 let (status, _rest) = Self::unpack_u8(rest)?;
                 Self::set_superbonds{
@@ -141,25 +143,19 @@ impl SuperBondsInstruction {
                 }
             },
 
-            /*          ADD Liquidity       */
-            11 =>{
-                let (liquidity_n_fee_usdt, _rest) = Self::unpack_u64(rest)?;
-                Self::addLiquidity{
-                    liquidity_n_fee_usdt
+            11 => {
+                let (action_type, rest) = Self::unpack_u8(rest)?;
+                let (amount, _rest) = Self::unpack_u64(rest)?;
+                Self::add_remove_liq{
+                    action_type,
+                    amount
                 }
-            },
-            /*          REMOVE Liquidity       */
-            13 =>{
-                let (lp_token_amount, _rest) = Self::unpack_u64(rest)?;
-                Self::removeLiquidity{
-                    lp_token_amount
-                }
-            },
+            }
             /*          TRADE       */
             15 =>{
-                let (usdt_in, _rest) = Self::unpack_u64(rest)?;
+                let (usdc_in, _rest) = Self::unpack_u64(rest)?;
                 Self::trade{
-                    usdt_in
+                    usdc_in
                 }
             },
             /*          REDEEM       */
@@ -167,7 +163,9 @@ impl SuperBondsInstruction {
                 Self::redeem{
                 }
             },
-            /*          STAKE      */
+            /*          STAKE  and CLAIM
+                    When amount = 0; mean claiming rewards
+                */
             19 =>{
                 let (stake_type, rest) = Self::unpack_u8(rest)?;
                 let (amount, _rest) = Self::unpack_u64(rest)?;
@@ -185,17 +183,12 @@ impl SuperBondsInstruction {
                     amount
                 }
             },
+            23 => {
+                Self::claimNFT{
 
-            /*          CLAIM SB     */
-            27 =>{
-                Self::claim{
                 }
             },
-            /*          CHECK SB REWARDS    */
-            29 =>{
-                Self::check_reward{
-                }
-            },
+
             31 => {
                 Self::external_farm{
 
@@ -208,23 +201,36 @@ impl SuperBondsInstruction {
                 }
             },
             35 => {
-                let (amount, rest) = Self::unpack_u64(rest)?;
-                let (farm_id, _rest) = Self::unpack_u8(rest)?;
-                Self::add_farming_reward{
-                    amount,
-                    farm_id
+                Self::request_farming_reward{
                 }
             },
             37 => {
                 let (farm_id, rest) = Self::unpack_u8(rest)?;
-                let (reward_data_size, _rest) = Self::unpack_u8(rest)?;
-                Self::claim_farming_reward{
+                let (amount, _rest) = Self::unpack_u64(rest)?;
+                Self::distribute_farming_reward{
                     farm_id,
-                    reward_data_size
+                    amount
+                }
+            },
+
+            38 => {
+                Self::cleanup_farming_reward_request{
+
+                }
+            },
+
+            39 => {
+                Self::settle_redemption{
+                }
+            },
+            41 => {
+                let (amount, _rest) = Self::unpack_u64(rest)?;
+                Self::withdraw_fund{
+                    amount
                 }
             }
 
-            _ => return Err(SB_Error::InvalidInstruction.into())
+            _ => return Err(ProgramError::InvalidInstructionData.into())
         })
     }
     fn unpack_u64(input: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
@@ -234,10 +240,10 @@ impl SuperBondsInstruction {
                 .get(..8)
                 .and_then(|slice| slice.try_into().ok())
                 .map(u64::from_le_bytes)
-                .ok_or(SB_Error::InvalidInstruction)?;
+                .ok_or(ProgramError::InvalidInstructionData)?;
             Ok((amount, rest))
         } else {
-            Err(SB_Error::InvalidInstruction.into())
+            Err(ProgramError::InvalidInstructionData.into())
         }
     }
     fn unpack_u32(input: &[u8]) -> Result<(u32, &[u8]), ProgramError> {
@@ -247,10 +253,10 @@ impl SuperBondsInstruction {
                 .get(..4)
                 .and_then(|slice| slice.try_into().ok())
                 .map(u32::from_le_bytes)
-                .ok_or(SB_Error::InvalidInstruction)?;
+                .ok_or(ProgramError::InvalidInstructionData)?;
             Ok((amount, rest))
         } else {
-            Err(SB_Error::InvalidInstruction.into())
+            Err(ProgramError::InvalidInstructionData.into())
         }
     }
     fn unpack_u8(input: &[u8]) -> Result<(u8, &[u8]), ProgramError> {
@@ -260,10 +266,10 @@ impl SuperBondsInstruction {
                 .get(..1)
                 .and_then(|slice| slice.try_into().ok())
                 .map(u8::from_le_bytes)
-                .ok_or(SB_Error::InvalidInstruction)?;
+                .ok_or(ProgramError::InvalidInstructionData)?;
             Ok((amount, rest))
         } else {
-            Err(SB_Error::InvalidInstruction.into())
+            Err(ProgramError::InvalidInstructionData.into())
         }
     }
 
